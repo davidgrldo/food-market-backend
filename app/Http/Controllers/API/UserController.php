@@ -1,0 +1,145 @@
+<?php
+
+namespace App\Http\Controllers\API;
+
+use Exception;
+use App\Models\User;
+use Illuminate\Http\Request;
+use App\Helpers\ResponseFormatter;
+use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+
+class UserController extends Controller
+{
+
+    public function login(Request $request)
+    {
+        try {
+            // Validate Form
+            $request->validate([
+                'email'     => 'email|required',
+                'password'  => 'required'
+            ]);
+
+            // Checking Credentials
+            $credentials = request(['emai', 'password']);
+            if (!Auth::attempt($credentials)) {
+                return ResponseFormatter::error([
+                    'message' => 'Unauthorized'
+                ], 'Authentication Failed', 500);
+            }
+
+            // If Hash not work correctly
+            $user = User::where('email', $request->email)->first();
+            if(!Hash::check($request->password, $user->password, [])) {
+                throw new \Exception('Invalid Credentials');
+            }
+
+            // If Hash work correctly
+            $tokenResult = $user->createToken('authToken')->plainTextToken;
+
+            return ResponseFormatter::success([
+                'access_token'  => $tokenResult,
+                'token_type'    => 'Bearer',
+                'user'          => $user
+            ], 'Authenticated');
+        } catch (Exception $error) {
+            return ResponseFormatter::error([
+                'message'   => 'Something went wrong',
+                'error'     => $error
+            ], 'Authentication Failed', 500);
+        }
+    }
+
+    public function register(Request $request)
+    {
+        try {
+            // Form validation
+            $request->validate([
+                'name'      => ['required', 'string', 'max:255'],
+                'email'     => ['required', 'string', 'unique:users', 'email', 'max:255'],
+                'password'  => ['required', 'string', 'min:6', 'confirmed']
+            ]);
+
+            // Store data
+            User::create([
+                'name'          => $request->name,
+                'email'         => $request->email,
+                'address'       => $request->address,
+                'house_number'  => $request->house_number,
+                'phone_number'  => $request->phone_number,
+                'city'          => $request->city,
+                'password'      => Hash::make($request->password)
+            ]);
+            // Declare user data
+            $user = User::where('email', $request->email)->first();
+            // Give Auth Token to new user
+            $tokenResult = $user->createToken('authToken')->plainTextToken;
+            // Success Response
+            return ResponseFormatter::success([
+                'access_token'   => $tokenResult,
+                'token_type'     => 'Bearer',
+                'user'           => $user
+            ], 'User registered successfully', 200);
+        } catch (Exception $error) {
+            return ResponseFormatter::error([
+                'message'   => 'Something went wrong',
+                'error'     => $error->getMessage()
+            ], 'User register Failed', 500);
+        }
+    }
+
+    public function logout(Requset $requset)
+    {
+        // Gett current access token
+        $token = $requset->user()->currentAccessToken()->delete();
+
+        return ResponseFormatter::success($token, 'Token Revoked');
+    }
+
+    public function fetch(Request $request)
+    {
+        return ResponseFormatter::success(
+            $request->user(), 'Get profile data successfully'
+        );
+    }
+
+    public function updateProfile(Request $request)
+    {
+        // Get all user data
+        $data = $request->all();
+        // Declare current user
+        $user = Auth::user();
+        // Update data
+        $user->update($data);
+
+        return ResponseFormatter::success($user, 'Profile Updated');
+    }
+
+    public function updateProfilePicture(Request $request)
+    {
+        $validator = Validator::make($request->all(),[
+            'file' => 'required|image|max:2048'
+        ]);
+
+        if($validator->fails()) {
+            return ResponseFormatter::error([
+                'error' => $validator->errors()
+            ], 'Update photo failed', 401);
+        }
+
+        if($request->file('file')) {
+            // Set path folder (store)
+            $file = $request->file->store('assets/user', 'public');
+
+            // Save URL photo to database
+            $user =Auth::user();
+            $user->profile_photo_path = $file;
+            $user = update();
+
+            return ResponseFormatter::success([$file], 'File successfully updated');
+        }
+    }
+}
